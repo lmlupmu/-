@@ -134,6 +134,16 @@ export class AudioAnalyzer {
     }
   }
 
+  /** 重新校准时清空之前的校准数据 */
+  resetCalibration(): void {
+    this.calibrationRms = [];
+    this.calibrationZcr = [];
+    this.calibrationCentroid = [];
+    this.calibrationFlatness = [];
+    this.calibrationFrameCount = 0;
+    this.baseline = null;
+  }
+
   /** 采集一帧环境噪音样本，返回是否已采集足够 */
   collectCalibrationSample(): boolean {
     this.analyser.getFloatTimeDomainData(this.timeDomainData);

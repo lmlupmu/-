@@ -30,8 +30,8 @@ export function assessFrame(
   const noiseDb = toDb(baseline.noiseRms);
   const snrDb = signalDb - noiseDb;
 
-  // 静音阈值：比环境噪音高不到 5dB，或绝对能量过低（兼容低增益麦克风）
-  const silent = snrDb < 5 || rms < 0.003;
+  // 静音阈值：比环境噪音高不到 3dB。不再用绝对 RMS 阈值，避免低增益麦克风被误判为静音
+  const silent = snrDb < 3;
 
   // 削波：任意采样点接近最大幅值（0.98）视为过载
   const clipped = maxAmplitude > 0.98;

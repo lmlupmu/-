@@ -110,7 +110,14 @@ export default function Recite() {
     if (streamRef.current && analyzerRef.current) return true;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
+          sampleRate: 44100,
+        },
+      });
       streamRef.current = stream;
 
       const audioContext = createAudioContext();
@@ -142,6 +149,8 @@ export default function Recite() {
     const ready = await initAudio();
     if (!ready || !analyzerRef.current) return;
 
+    analyzerRef.current.resetCalibration();
+    setIsCalibrated(false);
     setIsCalibrating(true);
     setCalibrationProgress(0);
 
@@ -199,7 +208,10 @@ export default function Recite() {
       analyzerRef.current?.collectSample();
       const currentEnergy = analyzerRef.current?.getCurrentEnergy() || 0;
       const currentSnr = analyzerRef.current?.getCurrentSnr() || 0;
-      setVolume(Math.min(currentEnergy * 20, 1));
+      // 用对数尺度显示音量，低能量也能看到波动
+      const db = currentEnergy > 0 ? 20 * Math.log10(currentEnergy) : -100;
+      const normalizedVolume = Math.min(Math.max((db + 60) / 60, 0), 1);
+      setVolume(normalizedVolume);
 
       const baseline = analyzerRef.current?.getBaseline();
       setDebugStats({
@@ -358,7 +370,15 @@ export default function Recite() {
           </div>
         ) : (
           <div className="mb-6 rounded-2xl border border-green-500/20 bg-green-500/10 p-4 text-center backdrop-blur-md">
-            <p className="text-sm text-green-300">环境校准完成，可以开始朗读</p>
+            <p className="mb-2 text-sm text-green-300">环境校准完成，可以开始朗读</p>
+            <button
+              type="button"
+              onClick={startCalibration}
+              disabled={isRecording || isCalibrating}
+              className="text-xs text-green-400 underline disabled:opacity-50"
+            >
+              重新校准
+            </button>
           </div>
         )}
 
