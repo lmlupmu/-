@@ -22,6 +22,15 @@ export default function Recite() {
   const [isCalibrated, setIsCalibrated] = useState(false);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
   const [qualityTip, setQualityTip] = useState<string | null>(null);
+  const [debugStats, setDebugStats] = useState<{
+    totalFrames: number;
+    validFrames: number;
+    pitchSamples: number;
+    energySamples: number;
+    currentEnergy: number;
+    currentSnr: number;
+    noiseRms: number;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -107,6 +116,11 @@ export default function Recite() {
       const audioContext = createAudioContext();
       audioContextRef.current = audioContext;
 
+      // 某些浏览器需要显式 resume 才能采集音频
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
       const analyzer = new AudioAnalyzer(audioContext);
       analyzer.connect(stream);
       analyzerRef.current = analyzer;
@@ -187,15 +201,22 @@ export default function Recite() {
       const currentSnr = analyzerRef.current?.getCurrentSnr() || 0;
       setVolume(Math.min(currentEnergy * 20, 1));
 
-      if (import.meta.env.DEV && analyzerRef.current && Math.random() < 0.05) {
-        console.debug('[Recite] audio stats:', analyzerRef.current.getDebugStats());
-      }
+      const baseline = analyzerRef.current?.getBaseline();
+      setDebugStats({
+        totalFrames: analyzerRef.current?.getDebugStats().totalFrames ?? 0,
+        validFrames: analyzerRef.current?.getDebugStats().validFrames ?? 0,
+        pitchSamples: analyzerRef.current?.getDebugStats().pitchSamples ?? 0,
+        energySamples: analyzerRef.current?.getDebugStats().energySamples ?? 0,
+        currentEnergy,
+        currentSnr,
+        noiseRms: baseline?.noiseRms ?? 0,
+      });
 
       if (currentEnergy > 0.5) {
         setQualityTip('声音过大，建议离麦克风稍远');
-      } else if (currentSnr < 8) {
+      } else if (currentSnr < 5) {
         setQualityTip('声音太小或环境嘈杂，请靠近麦克风朗读');
-      } else if (currentSnr < 12) {
+      } else if (currentSnr < 10) {
         setQualityTip('当前信噪比一般，请尽量保持环境安静');
       } else {
         setQualityTip('声音质量良好');
@@ -363,6 +384,19 @@ export default function Recite() {
             </p>
           )}
         </div>
+
+        {debugStats && isRecording && (
+          <div className="mb-4 rounded-xl border border-white/10 bg-black/30 p-3 text-xs font-mono text-slate-400 backdrop-blur-md">
+            <div className="mb-1 text-slate-500">调试信息</div>
+            <div>总帧数: {debugStats.totalFrames}</div>
+            <div>有效帧: {debugStats.validFrames}</div>
+            <div>基频样本: {debugStats.pitchSamples}</div>
+            <div>能量样本: {debugStats.energySamples}</div>
+            <div>当前能量: {debugStats.currentEnergy.toFixed(5)}</div>
+            <div>当前 SNR: {debugStats.currentSnr.toFixed(2)} dB</div>
+            <div>环境噪音: {debugStats.noiseRms.toFixed(5)}</div>
+          </div>
+        )}
 
         <div className="flex flex-col items-center">
           <div className="mb-6 text-center">

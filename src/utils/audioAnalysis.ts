@@ -219,33 +219,31 @@ export class AudioAnalyzer {
     }
     const pitch = estimatePitch(this.timeDomainData, this.audioContext.sampleRate);
 
-    const previousSignal = this.previousTimeDomainData
-      ? Array.from(this.previousTimeDomainData)
-      : undefined;
-
-    const features = Meyda.extract(
-      [
-        'rms',
-        'zcr',
-        'spectralCentroid',
-        'spectralRolloff',
-        'spectralFlatness',
-        'spectralSpread',
-        'spectralCrest',
-        'spectralFlux',
-        'mfcc',
-      ],
-      this.timeDomainData,
-      previousSignal
-    ) as Record<string, number | number[]> | null;
-
-    // Meyda 提取失败时跳过该帧，避免用全 0 特征误判
-    if (!features) return;
-
+    // 先保存当前原始时域信号，用于下一帧的 spectralFlux（当前先禁用，避免 Meyda 兼容问题）
     this.previousTimeDomainData = new Float32Array(this.timeDomainData);
 
+    let features: Record<string, number | number[]> | null = null;
+    try {
+      features = Meyda.extract(
+        [
+          'rms',
+          'zcr',
+          'spectralCentroid',
+          'spectralRolloff',
+          'spectralFlatness',
+          'spectralSpread',
+          'spectralCrest',
+          'mfcc',
+        ],
+        this.timeDomainData
+      ) as Record<string, number | number[]> | null;
+    } catch (err) {
+      // Meyda 偶发报错时降级为手动计算基础特征
+      console.warn('[AudioAnalyzer] Meyda.extract failed:', err);
+    }
+
     const rms = (features?.rms as number) ?? calculateRMS(this.timeDomainData);
-    const zcr = (features?.zcr as number) ?? 0;
+    const zcr = (features?.zcr as number) ?? calculateZCR(this.timeDomainData);
     const flatness = (features?.spectralFlatness as number) ?? 0;
 
     const quality = assessFrame(rms, zcr, flatness, maxAmplitude, this.baseline);
@@ -390,6 +388,16 @@ export function calculateRMS(timeDomainData: Float32Array): number {
     sum += timeDomainData[i] * timeDomainData[i];
   }
   return Math.sqrt(sum / timeDomainData.length);
+}
+
+export function calculateZCR(timeDomainData: Float32Array): number {
+  let crossings = 0;
+  for (let i = 1; i < timeDomainData.length; i++) {
+    if ((timeDomainData[i] >= 0) !== (timeDomainData[i - 1] >= 0)) {
+      crossings += 1;
+    }
+  }
+  return crossings / (timeDomainData.length - 1);
 }
 
 export function calculateSpectralCentroid(frequencyData: Uint8Array, sampleRate: number): number {
