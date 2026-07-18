@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RotateCcw, Music, Sparkles, BarChart3, Clock, Activity } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Music, Sparkles, BarChart3, Clock } from 'lucide-react';
 import { useVoiceStore } from '@/store/useVoiceStore';
 
 export default function Result() {
@@ -15,7 +15,7 @@ export default function Result() {
 
   if (!result) return null;
 
-  const { voiceType, features, recordingDuration, quality } = result;
+  const { voiceType, features, recordingDuration } = result;
 
   const rarityLabels: Record<number, string> = {
     1: '常见',
@@ -110,29 +110,6 @@ export default function Result() {
           </div>
         </div>
 
-        <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-          <div className="mb-3 flex items-center gap-2 text-slate-300">
-            <Activity className="h-5 w-5 text-green-400" />
-            <span className="font-bold">录音质量</span>
-          </div>
-          <div className="mb-3 flex items-center gap-2">
-            <span
-              className={`inline-flex h-3 w-3 rounded-full ${quality.passed ? 'bg-green-400' : 'bg-yellow-400'}`}
-            />
-            <span className="text-sm text-slate-300">{quality.passed ? '质量合格' : quality.reason}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">信噪比</p>
-              <p className="text-lg font-bold text-white">{quality.snr.toFixed(1)} dB</p>
-            </div>
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">环境噪音</p>
-              <p className="text-lg font-bold text-white">{quality.noiseLevelDb.toFixed(1)} dB</p>
-            </div>
-          </div>
-        </div>
-
         <div className="mb-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
           <div className="mb-3 flex items-center gap-2 text-slate-300">
             <Clock className="h-5 w-5 text-green-400" />
@@ -154,22 +131,6 @@ export default function Result() {
             <div className="rounded-2xl bg-white/5 p-3">
               <p className="text-slate-500">能量指数</p>
               <p className="text-lg font-bold text-white">{(features.energy * 100).toFixed(0)}%</p>
-            </div>
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">频谱质心</p>
-              <p className="text-lg font-bold text-white">{features.spectralCentroid.toFixed(0)}Hz</p>
-            </div>
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">频谱平坦度</p>
-              <p className="text-lg font-bold text-white">{features.spectralFlatness.toFixed(3)}</p>
-            </div>
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">过零率</p>
-              <p className="text-lg font-bold text-white">{features.zcr.toFixed(3)}</p>
-            </div>
-            <div className="rounded-2xl bg-white/5 p-3">
-              <p className="text-slate-500">谐波复杂度</p>
-              <p className="text-lg font-bold text-white">{features.harmonicComplexity.toFixed(2)}</p>
             </div>
           </div>
         </div>
