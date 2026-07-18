@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mic, Loader2, Volume2 } from 'lucide-react';
+import { ArrowLeft, Mic, Loader2, Volume2, Activity } from 'lucide-react';
 import { useVoiceStore } from '@/store/useVoiceStore';
 import { poems } from '@/data/poems';
 import { AudioAnalyzer, createAudioContext } from '@/utils/audioAnalysis';
@@ -18,6 +18,11 @@ export default function Recite() {
   const [volume, setVolume] = useState(0);
   const [errorTip, setErrorTip] = useState<string | null>(null);
 
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [isCalibrated, setIsCalibrated] = useState(false);
+  const [calibrationProgress, setCalibrationProgress] = useState(0);
+  const [qualityTip, setQualityTip] = useState<string | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -25,12 +30,55 @@ export default function Recite() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const sampleIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const calibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!gender) {
       navigate('/');
     }
   }, [gender, navigate]);
+
+  // 页面卸载时释放麦克风与音频上下文
+  useEffect(() => {
+    return () => {
+      releaseAudioResources();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const releaseAudioResources = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (sampleIntervalRef.current) {
+      clearInterval(sampleIntervalRef.current);
+      sampleIntervalRef.current = null;
+    }
+    if (calibrationIntervalRef.current) {
+      clearInterval(calibrationIntervalRef.current);
+      calibrationIntervalRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    analyzerRef.current?.disconnect();
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    setIsRecording(false);
+    setIsCalibrating(false);
+    setVolume(0);
+  }, []);
 
   const refreshPoem = useCallback(() => {
     setCurrentPoem((prev) => {
@@ -49,10 +97,8 @@ export default function Recite() {
     return `${m}:${s}.${ms}`;
   };
 
-  const startRecording = async () => {
-    if (isRecording || isAnalyzing || !gender) return;
-
-    setErrorTip(null);
+  const initAudio = async (): Promise<boolean> => {
+    if (streamRef.current && analyzerRef.current) return true;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -65,29 +111,92 @@ export default function Recite() {
       analyzer.connect(stream);
       analyzerRef.current = analyzer;
 
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-
-      setIsRecording(true);
-      setDuration(0);
-      setVolume(0);
-      startTimeRef.current = performance.now();
-
-      intervalRef.current = setInterval(() => {
-        const elapsed = (performance.now() - startTimeRef.current) / 1000;
-        setDuration(elapsed);
-      }, 50);
-
-      sampleIntervalRef.current = setInterval(() => {
-        analyzerRef.current?.collectSample();
-        const currentEnergy = analyzerRef.current?.getCurrentEnergy() || 0;
-        setVolume(Math.min(currentEnergy * 20, 1));
-      }, 50);
+      return true;
     } catch (error) {
       alert('无法访问麦克风，请检查权限设置');
       console.error(error);
+      return false;
     }
+  };
+
+  const startCalibration = async () => {
+    if (isCalibrating || isRecording || !gender) return;
+
+    setErrorTip(null);
+    setQualityTip(null);
+
+    const ready = await initAudio();
+    if (!ready || !analyzerRef.current) return;
+
+    setIsCalibrating(true);
+    setCalibrationProgress(0);
+
+    calibrationIntervalRef.current = setInterval(() => {
+      const analyzer = analyzerRef.current;
+      if (!analyzer) return;
+
+      const done = analyzer.collectCalibrationSample();
+      const frames = analyzer.getCalibrationFrameCount();
+      const progress = Math.min((frames / 30) * 100, 99);
+      setCalibrationProgress(progress);
+
+      if (done) {
+        analyzer.finishCalibration();
+        setIsCalibrating(false);
+        setIsCalibrated(true);
+        setCalibrationProgress(100);
+        if (calibrationIntervalRef.current) {
+          clearInterval(calibrationIntervalRef.current);
+          calibrationIntervalRef.current = null;
+        }
+      }
+    }, 50);
+  };
+
+  const startRecording = async () => {
+    if (isRecording || isAnalyzing || !gender || !isCalibrated) return;
+
+    setErrorTip(null);
+    setQualityTip(null);
+
+    if (!streamRef.current || !analyzerRef.current) {
+      const ready = await initAudio();
+      if (!ready || !analyzerRef.current) return;
+    }
+
+    // 每次录音前清空上一次采集的样本，但保留校准基准
+    analyzerRef.current.resetRecording();
+
+    const mediaRecorder = new MediaRecorder(streamRef.current!);
+    mediaRecorderRef.current = mediaRecorder;
+    mediaRecorder.start();
+
+    setIsRecording(true);
+    setDuration(0);
+    setVolume(0);
+    startTimeRef.current = performance.now();
+
+    intervalRef.current = setInterval(() => {
+      const elapsed = (performance.now() - startTimeRef.current) / 1000;
+      setDuration(elapsed);
+    }, 50);
+
+    sampleIntervalRef.current = setInterval(() => {
+      analyzerRef.current?.collectSample();
+      const currentEnergy = analyzerRef.current?.getCurrentEnergy() || 0;
+      const currentSnr = analyzerRef.current?.getCurrentSnr() || 0;
+      setVolume(Math.min(currentEnergy * 20, 1));
+
+      if (currentEnergy > 0.5) {
+        setQualityTip('声音过大，建议离麦克风稍远');
+      } else if (currentSnr < 8) {
+        setQualityTip('声音太小或环境嘈杂，请靠近麦克风朗读');
+      } else if (currentSnr < 12) {
+        setQualityTip('当前信噪比一般，请尽量保持环境安静');
+      } else {
+        setQualityTip('声音质量良好');
+      }
+    }, 50);
   };
 
   const stopRecording = useCallback(() => {
@@ -95,6 +204,7 @@ export default function Recite() {
 
     setIsRecording(false);
     setVolume(0);
+    setQualityTip(null);
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -110,17 +220,6 @@ export default function Recite() {
     setDuration(elapsed);
 
     mediaRecorderRef.current?.stop();
-    analyzerRef.current?.disconnect();
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
 
     if (!gender) return;
 
@@ -135,10 +234,17 @@ export default function Recite() {
     }
 
     const poemCharCount = currentPoem.content.join('').length;
-    const features = analyzerRef.current?.getFeatures(elapsed, poemCharCount);
+    const result = analyzerRef.current?.getFeatures(elapsed, poemCharCount);
 
-    if (!features) {
+    if (!result) {
       setErrorTip('声音分析失败，请重新朗读~');
+      return;
+    }
+
+    const { features, quality } = result;
+
+    if (!quality.passed) {
+      setErrorTip(`录音质量未达标：${quality.reason}`);
       return;
     }
 
@@ -151,6 +257,7 @@ export default function Recite() {
         voiceType,
         features,
         recordingDuration: elapsed,
+        quality,
       });
       setIsAnalyzing(false);
       navigate('/result');
@@ -182,7 +289,7 @@ export default function Recite() {
             <button
               type="button"
               onClick={refreshPoem}
-              disabled={isRecording}
+              disabled={isRecording || isCalibrating}
               className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-white/20 disabled:opacity-50"
             >
               换一首
@@ -196,6 +303,39 @@ export default function Recite() {
             ))}
           </div>
         </div>
+
+        {!isCalibrated ? (
+          <div className="mb-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-6 text-center backdrop-blur-md">
+            <Activity className="mx-auto mb-3 h-8 w-8 text-cyan-400" />
+            <h3 className="mb-2 text-lg font-bold text-white">环境校准</h3>
+            <p className="mb-4 text-sm text-slate-300">
+              点击开始后保持安静 1.5 秒，让系统检测当前环境噪音，后续录音会据此过滤杂音。
+            </p>
+            {isCalibrating ? (
+              <div>
+                <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-slate-700">
+                  <div
+                    className="h-full rounded-full bg-cyan-400 transition-all duration-100"
+                    style={{ width: `${calibrationProgress}%` }}
+                  />
+                </div>
+                <p className="text-sm text-cyan-300">正在检测环境噪音... {Math.round(calibrationProgress)}%</p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={startCalibration}
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                开始校准
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="mb-6 rounded-2xl border border-green-500/20 bg-green-500/10 p-4 text-center backdrop-blur-md">
+            <p className="text-sm text-green-300">环境校准完成，可以开始朗读</p>
+          </div>
+        )}
 
         <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
           <div className="mb-2 flex items-center justify-between text-sm text-slate-400">
@@ -213,6 +353,11 @@ export default function Recite() {
               style={{ width: `${Math.round(volume * 100)}%` }}
             />
           </div>
+          {qualityTip && (
+            <p className={`mt-2 text-xs ${qualityTip === '声音质量良好' ? 'text-green-400' : 'text-yellow-400'}`}>
+              {qualityTip}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col items-center">
@@ -221,7 +366,7 @@ export default function Recite() {
               {formatDuration(duration)}
             </div>
             <p className="mt-2 text-sm text-slate-400">
-              {isRecording ? '录音中，松开按钮结束' : '按住下方按钮朗读古诗'}
+              {isRecording ? '录音中，松开按钮结束' : isCalibrated ? '按住下方按钮朗读古诗' : '请先完成环境校准'}
             </p>
           </div>
 
@@ -232,7 +377,7 @@ export default function Recite() {
             onMouseLeave={isRecording ? stopRecording : undefined}
             onTouchStart={startRecording}
             onTouchEnd={stopRecording}
-            disabled={isAnalyzing}
+            disabled={isAnalyzing || !isCalibrated || isCalibrating}
             className={`relative flex h-28 w-28 items-center justify-center rounded-full transition-all duration-200 active:scale-95 disabled:opacity-70 ${
               isRecording
                 ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.5)]'
