@@ -211,12 +211,13 @@ export class AudioAnalyzer {
     this.analyser.getFloatTimeDomainData(this.timeDomainData);
     this.analyser.getByteFrequencyData(this.frequencyData);
 
-    // 在 Meyda 加窗前计算原始最大幅值，用于削波检测
+    // 在 Meyda 加窗前计算原始最大幅值和基频，避免加窗影响
     let maxAmplitude = 0;
     for (let i = 0; i < this.timeDomainData.length; i++) {
       const abs = Math.abs(this.timeDomainData[i]);
       if (abs > maxAmplitude) maxAmplitude = abs;
     }
+    const pitch = estimatePitch(this.timeDomainData, this.audioContext.sampleRate);
 
     const features = Meyda.extract(
       [
@@ -233,6 +234,9 @@ export class AudioAnalyzer {
       this.timeDomainData,
       this.previousTimeDomainData ?? undefined
     ) as Record<string, number | number[]> | null;
+
+    // Meyda 提取失败时跳过该帧，避免用全 0 特征误判
+    if (!features) return;
 
     this.previousTimeDomainData = new Float32Array(this.timeDomainData);
 
@@ -255,7 +259,6 @@ export class AudioAnalyzer {
     this.validFrames += 1;
     this.validSnrSamples.push(quality.snrDb);
 
-    const pitch = estimatePitch(this.timeDomainData, this.audioContext.sampleRate);
     if (pitch > 60 && pitch < 800) {
       this.pitchSamples.push(pitch);
     }
@@ -284,6 +287,23 @@ export class AudioAnalyzer {
 
   getCurrentSnr(): number {
     return this.currentSnr;
+  }
+
+  /** 调试用：返回当前帧数和有效样本数 */
+  getDebugStats(): {
+    totalFrames: number;
+    validFrames: number;
+    pitchSamples: number;
+    energySamples: number;
+    baseline: CalibrationBaseline | null;
+  } {
+    return {
+      totalFrames: this.totalFrames,
+      validFrames: this.validFrames,
+      pitchSamples: this.pitchSamples.length,
+      energySamples: this.energySamples.length,
+      baseline: this.baseline,
+    };
   }
 
   hasValidVoice(): boolean {

@@ -187,6 +187,10 @@ export default function Recite() {
       const currentSnr = analyzerRef.current?.getCurrentSnr() || 0;
       setVolume(Math.min(currentEnergy * 20, 1));
 
+      if (import.meta.env.DEV && analyzerRef.current && Math.random() < 0.05) {
+        console.debug('[Recite] audio stats:', analyzerRef.current.getDebugStats());
+      }
+
       if (currentEnergy > 0.5) {
         setQualityTip('声音过大，建议离麦克风稍远');
       } else if (currentSnr < 8) {

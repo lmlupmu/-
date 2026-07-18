@@ -30,16 +30,16 @@ export function assessFrame(
   const noiseDb = toDb(baseline.noiseRms);
   const snrDb = signalDb - noiseDb;
 
-  // 静音阈值：比环境噪音高不到 8dB，或绝对能量过低
-  const silent = snrDb < 8 || rms < 0.01;
+  // 静音阈值：比环境噪音高不到 5dB，或绝对能量过低（兼容低增益麦克风）
+  const silent = snrDb < 5 || rms < 0.003;
 
   // 削波：任意采样点接近最大幅值（0.98）视为过载
   const clipped = maxAmplitude > 0.98;
 
   // 噪音判定：过零率/平坦度显著高于环境基准，且信噪比不高，则视为噪音/清辅音
-  const zcrAnomaly = zcr > baseline.noiseZcr * 1.8 + 0.05;
-  const flatnessAnomaly = flatness > baseline.noiseFlatness * 1.5 + 0.05;
-  const noisy = snrDb < 10 && (zcrAnomaly || flatnessAnomaly);
+  const zcrAnomaly = zcr > baseline.noiseZcr * 2.0 + 0.08;
+  const flatnessAnomaly = flatness > baseline.noiseFlatness * 1.8 + 0.08;
+  const noisy = snrDb < 8 && (zcrAnomaly || flatnessAnomaly);
 
   return {
     valid: !silent && !clipped && !noisy,
@@ -73,10 +73,10 @@ export function summarizeQuality(input: QualitySummaryInput): RecordingQuality {
   const noiseLevelDb = toDb(baseline.noiseRms);
 
   const reasons: string[] = [];
-  if (validRatio < 0.20) reasons.push('有效声音片段太少，请靠近麦克风并大声朗读');
-  if (avgSnr < 8) reasons.push('环境噪音过大或声音太小，信噪比偏低');
-  if (clippingRatio > 0.05) reasons.push('声音过大导致削波，请离麦克风稍远一些');
-  if (silentRatio > 0.70) reasons.push('录音中静音片段过多，请确保完整朗读');
+  if (validRatio < 0.12) reasons.push('有效声音片段太少，请靠近麦克风并大声朗读');
+  if (avgSnr < 5) reasons.push('环境噪音过大或声音太小，信噪比偏低');
+  if (clippingRatio > 0.08) reasons.push('声音过大导致削波，请离麦克风稍远一些');
+  if (silentRatio > 0.85) reasons.push('录音中静音片段过多，请确保完整朗读');
 
   const passed = reasons.length === 0;
 
