@@ -219,6 +219,10 @@ export class AudioAnalyzer {
     }
     const pitch = estimatePitch(this.timeDomainData, this.audioContext.sampleRate);
 
+    const previousSignal = this.previousTimeDomainData
+      ? Array.from(this.previousTimeDomainData)
+      : undefined;
+
     const features = Meyda.extract(
       [
         'rms',
@@ -232,7 +236,7 @@ export class AudioAnalyzer {
         'mfcc',
       ],
       this.timeDomainData,
-      this.previousTimeDomainData ?? undefined
+      previousSignal
     ) as Record<string, number | number[]> | null;
 
     // Meyda 提取失败时跳过该帧，避免用全 0 特征误判
