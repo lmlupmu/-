@@ -208,9 +208,9 @@ export default function Recite() {
       analyzerRef.current?.collectSample();
       const currentEnergy = analyzerRef.current?.getCurrentEnergy() || 0;
       const currentSnr = analyzerRef.current?.getCurrentSnr() || 0;
-      // 用对数尺度显示音量，低能量也能看到波动
+      // 用对数尺度显示音量，范围 -70dB ~ -10dB，低能量也能看到波动
       const db = currentEnergy > 0 ? 20 * Math.log10(currentEnergy) : -100;
-      const normalizedVolume = Math.min(Math.max((db + 60) / 60, 0), 1);
+      const normalizedVolume = Math.min(Math.max((db + 70) / 60, 0), 1);
       setVolume(normalizedVolume);
 
       const baseline = analyzerRef.current?.getBaseline();
